@@ -74,6 +74,7 @@ if [ -z "$MODEL" ] && [ -d "$REPO/models/Qwen3.8-27B-W4A16-AutoRound-fast" ]; th
 fi
 MODEL=${MODEL:-$REPO/models/Qwen3.8-27B-W4A16-AutoRound}
 PORT=${PORT:-18020}
+TP=${TP:-1}    # tensor-parallel size: 2 for the two-3090 docker setup; 1 = one card
 MAX_SEQS=${MAX_SEQS:-}
 # INT8_ACT=int8 turns on the W4A8 Marlin path (weights stay int4, activations
 # quantized per token to int8, int8 tensor cores) for the layers INT8_LAYERS
@@ -662,6 +663,7 @@ fi
 exec venv/bin/vllm serve "$MODEL" \
   --served-model-name qwen3.8-27b \
   --host ${HOST:-0.0.0.0} --port $PORT \
+  --tensor-parallel-size $TP \
   --gpu-memory-utilization $GPU_UTIL \
   --max-model-len $MAX_LEN \
   --max-num-seqs $MAX_SEQS \

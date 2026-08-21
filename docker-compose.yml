@@ -1,4 +1,4 @@
-# Qwen3.8-27B on one RTX 3090, containerized. See docs/docker.md.
+# Qwen3.8-27B on two RTX 3090s (tensor-parallel 2), containerized. See docs/docker.md.
 #
 #   docker compose --profile single up -d     # low latency: MTP speculative decoding
 #   docker compose --profile batch  up -d     # throughput
@@ -19,7 +19,7 @@
 # aborts at "RuntimeError: UVA is not available" before loading weights (docs/docker.md).
 # PORT and MODELS_DIR are read here: models live in ./models by default
 # (the same layout as the venv install, so both can share one download).
-# One GPU: run either "single" or "batch", not both.
+# Both 3090s: run either "single" or "batch", not both.
 
 x-qwen: &qwen
   # Prebuilt on every main push by .github/workflows/docker-image.yml; the
@@ -36,6 +36,7 @@ x-qwen: &qwen
       required: false
   environment:
     HOME: /cache
+  # (serve adds TP + the two-GPU reservation on top of this anchor)
   volumes:
     - ${MODELS_DIR:-./models}:/app/models
     - qwen-cache:/cache
@@ -47,12 +48,15 @@ x-serve: &serve
   depends_on:
     prepare:
       condition: service_completed_successfully
+  environment:
+    HOME: /cache
+    TP: "${TP:-2}"   # tensor-parallel size: 2 = the two 3090s reserved below; .env TP= overrides
   deploy:
     resources:
       reservations:
         devices:
           - driver: nvidia
-            count: 1
+            device_ids: ["1", "2"]   # the two RTX 3090s (GPU 0 = RTX PRO 6000, left alone)
             capabilities: [gpu]
   restart: unless-stopped
   stop_grace_period: 30s

@@ -46,6 +46,7 @@ cd "$REPO"
 
 MODEL=${MODEL:-$REPO/models/Qwen3.8-27B-W4A16-AutoRound}
 PORT=${PORT:-18020}
+TP=${TP:-1}    # tensor-parallel size: 2 for the two-3090 docker setup; 1 = one card
 MAX_SEQS=${MAX_SEQS:-64}
 API_SERVERS=${API_SERVERS:-1}
 # KV=fp8 (default): FlashInfer fp8 KV cache, 150k context, fastest.
@@ -182,6 +183,7 @@ fi
 exec venv/bin/vllm serve "$MODEL" \
   --served-model-name qwen3.8-27b \
   --host 0.0.0.0 --port $PORT \
+  --tensor-parallel-size $TP \
   --gpu-memory-utilization $GPU_UTIL \
   --max-model-len $MAX_LEN \
   --max-num-seqs $MAX_SEQS \

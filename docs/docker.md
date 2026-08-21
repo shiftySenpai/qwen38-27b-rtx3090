@@ -40,11 +40,12 @@ same KV pools as the venv install — no container tax; the only first-start
 difference is gotcha 16 below.
 
 - Modes are compose profiles: `single` runs `single-user/start_qwen.sh`, `batch`
-  runs `batch/start_qwen.sh`. One GPU, so one at a time
+  runs `batch/start_qwen.sh`. Both profiles use both 3090s (tensor-parallel 2),
+  so one at a time
   (`docker compose --profile single down` before `--profile batch up -d`).
 - Every start-script knob works from `.env`, which is passed straight into the
   container: `CTX=long`, `KV=kvarn`, `SPEC=dflash2`, `PREFIX_CACHE=1`, `MAX_LEN=`,
-  `MAX_SEQS=`, `SPEC_ATTN=0`, `EXTRA_ARGS=...` (`prepare` also fetches the DFlash2 drafter;
+  `MAX_SEQS=`, `SPEC_ATTN=0`, `TP=1` (single card), `EXTRA_ARGS=...` (`prepare` also fetches the DFlash2 drafter;
   `DFLASH2=0` skips it). `PORT` (default 18020) and `MODELS_DIR` (default `./models`,
   so a venv install and the container can share one download) are read by
   compose itself.
