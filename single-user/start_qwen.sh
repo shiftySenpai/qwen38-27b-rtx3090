@@ -24,7 +24,7 @@
 # CTX=fast (default here): FlashAttention + bf16 KV, 4 drafts, 64k context.
 # CTX=long: fp8 KV via FlashInfer, 150k context, 3 drafts (k=4 crashes on
 #   FlashInfer as soon as one request finishes while another is mid-generation,
-#   vLLM 0.27.1); the split-KV attention patch is bf16-KV only, so ~90/98 tok/s.
+#   vLLM 0.28.0); the split-KV attention patch is bf16-KV only, so ~90/98 tok/s.
 #   KNOW THE EXPOSURE: fp8 KV has exactly ONE backend on sm86 -- FLASH_ATTN
 #   refuses it (needs FA3/SM90+) and TRITON_ATTN refuses it (needs SM89+),
 #   both measured -- so this tier runs FlashInfer with no A/B possible, and
@@ -137,7 +137,7 @@ CTX=${CTX:-fast}
 # SPEC=dflash2: the DFlash2 block drafter (incoai/Qwen3.8-27B-DFlash2, requantized
 #   to W4A16 by this repo: prepare/fetch_dflash2.py), 7 drafts in ONE non-autoregressive
 #   pass + a path selector; runs on vLLM's V2 model runner
-#   (patches/dflash2-backport.patch). CTX=fast (bf16, 64k), CTX=long (int8,
+#   (vLLM 0.28.0 native DFlash2, plus the repo's lookup/chain patches). CTX=fast (bf16, 64k), CTX=long (int8,
 #   128k) or, with kvarn/install.sh, CTX=huge (KVarN 4/2-bit, 240k + prefix
 #   caching); see README "DFlash2".
 # SPEC=off (or none): no speculative decoding at all. This used to fall through
@@ -175,7 +175,7 @@ if [ "$SPEC" = "dflash2" ] && [ "$CTX" = "long" ]; then
   ATTN_ARGS="--attention-backend TRITON_ATTN --kv-cache-dtype int8_per_token_head"
   export VLLM_SPEC_DECODE_ATTN=${SPEC_ATTN:-1}
 elif [ "$SPEC" = "dflash2" ] && [ "$CTX" = "huge" ]; then
-  # KVarN 4/2-bit KV on the V2 runner (kvarn/, with kvarn-v2-runner.patch as its
+  # KVarN 4/2-bit KV on the V2 runner (kvarn/, with kvarn-v2-runner-0.28.0.patch as its
   # second stage): the pinned pool holds 268k tokens at 245760 max-model-len.
   # The split-KV verify attention is bf16-KV only -- the KVarN backend brings
   # its own dequant path, so the env stays off here.
@@ -217,7 +217,15 @@ if [ "$SPEC" = "dflash2" ]; then
   # instead of 8 and 56k of context instead of 64k. Worth setting for a coding assistant
   # applying edits or a RAG front-end quoting sources; the default stays 7.
   DRAFT_TOKENS=${DFLASH_TOKENS:-7}
-  SPEC_CFG="{\"method\":\"dflash\",\"model\":\"$DRAFT\",\"num_speculative_tokens\":$DRAFT_TOKENS}"
+  # draft_sample_method is NOT optional here, and the default is the wrong one (#73).
+  # The 0.27.1 fork allocated the draft-logits buffer unconditionally in its own
+  # speculator; the 0.28 port inherits the upstream base class, which allocates it only
+  # when the config asks. Without it the rejection test loses its denominator -- the
+  # draft probability is pinned to 1 and acceptance is strictly stricter. Measured on the
+  # reference 3090, CTX=fast k=15: 2.66 tok/step and 101.4 tok/s unset against 3.23 and
+  # 121.7 set, with 3.19/120.5 on 0.27.1. The boot log says which you got: draft_logits.
+  # The mtp branch below has always set it.
+  SPEC_CFG="{\"method\":\"dflash\",\"model\":\"$DRAFT\",\"num_speculative_tokens\":$DRAFT_TOKENS,\"draft_sample_method\":\"${DRAFT_SAMPLE:-probabilistic}\"}"
   # The split-KV verify attention (patches/spec-decode-attn.patch) sizes its partial
   # buffers once for the longest query block it will see -- a captured CUDA graph holds
   # their addresses, so they must not be grown later.
@@ -534,7 +542,7 @@ fi
 # ASYNC_SCHED=0 (set above for a long DFlash2 verify block) runs the scheduler
 # synchronously, which is the only path on which vLLM lets the worker choose how many draft
 # tokens to put up for verification. Note --async-scheduling is already the default in
-# 0.27.1: --no-async-scheduling is what turns it off.
+# 0.28.0: --no-async-scheduling is what turns it off.
 # Array, not $( ... || echo ... ): errexit-safe via the fallback, but the
 # unquoted expansion word-splits; match METRICS_ARGS below.
 ASYNC_ARGS=(--no-async-scheduling)
@@ -553,7 +561,7 @@ ASYNC_ARGS=(--no-async-scheduling)
 # which reads as the model being bad at tools rather than as a misconfigured server.
 # The name is the call format, not the checkpoint -- nothing here is Qwen3-Coder.
 # qwen3_coder, qwen3_xml and mimo are three names for one Qwen3EngineToolParser in
-# 0.27.1, which is the tool-side adapter of the same parser engine that
+# 0.28.0, which is the tool-side adapter of the same parser engine that
 # --reasoning-parser qwen3 already uses (vllm/parser/qwen3.py).
 TOOL_PARSER=${TOOL_PARSER:-qwen3_coder}
 # Array, not $( [ ] && echo ): exits 1 when TOOLS is off (the shape #59 fixed)
